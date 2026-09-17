@@ -1,0 +1,12 @@
+# 绝不提交的东西
+*.tgz
+*.node
+*.wasm
+node_modules/
+backup*/
+*.log
+
+# 凭据
+.credentials.yaml
+*.key
+.env
