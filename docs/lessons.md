@@ -195,3 +195,63 @@ grep -n "关键字" "$OLD/包名/lib/index.js"
 6. **压测，不只跑一次**
 7. **修完同步三处**：全局安装、构建树、tarball，
    最后用校验和确认三者一致
+
+---
+
+## 10. alpha.1 → alpha.2 补充：重构会让补丁失效
+
+升级到 `0.1.6-alpha.2` 时验证了前面几条纪律，也暴露了新的一类风险。
+
+### 补丁可能因上游重构而「失去附着点」
+
+alpha.1 的 HMR 门控补丁改的是 `lib/profile-boot-*.js`。alpha.2 把
+`cordis-plugin-hmr` 换成了 `dsh-hmr`，并把挂载点搬到 `dsh-base/cordis.patch.yml`，
+同时删掉了 `watchUserPatches` —— **那段代码整个不存在了**。
+
+所以「补丁还在不在」有两个层次：
+
+1. 补丁是否还在（grep 关键字）
+2. **补丁所依附的代码是否还在**（grep 上下文）
+
+只做第 1 步会得出「补丁丢了」的错误结论，进而去改一个已经不存在的地方。
+正确做法是：**先 diff 两个版本的 `lib/` 与依赖清单**，再决定每个补丁是
+「重新应用」「已失效」还是「已被上游修复」。
+
+```sh
+ls old/lib | sort > a.txt; ls new/lib | sort > b.txt; diff a.txt b.txt
+node -e "/* 比对 package.json 的 dependencies 差异 */"
+```
+
+### 潜伏问题会升级成启动阻断
+
+`node-addon-require-builtin` 在 Android 上一直抛错，但 alpha.1 里它藏在
+`config.generation !== void 0` 的门后，**启动不受影响**。
+alpha.2 把它放到了 `installProfileResolution()` 里，而后者由 `PluginPackages`
+构造时调用 —— 于是同一段代码从「潜伏」变成 **`host preparation failed` 直接起不来**。
+
+教训：审计时看到「抛错但当前路径没走到」，要标记为**风险**而不是「无影响」，
+因为上游随时可能把它挪到主路径上。这类问题在新版本要**优先复测**。
+
+### 修法要顺着上游的设计，而不是对抗它
+
+这次没去禁用 HMR，而是让 `--expose-internals` 可达：
+
+- `dsh-app-boot` 的 `internalModules()` 优先 `require('internal/...')`
+- 启动器 shebang 加 `--expose-internals`
+
+结果**一个修复同时解决了两个问题**（启动阻断 + `dsh-hmr` 的 internals 需求），
+比「禁用 HMR」更接近上游意图，也没有丢失功能。
+
+注意 `NODE_OPTIONS` **不允许**携带 `--expose-internals`，只能靠 shebang 或真实 CLI 参数。
+
+### `mv` 之后，运行中的进程跟着改名
+
+原子替换用 `mv A B` 时，正在运行、已加载 B 中文件的进程**不会**出问题——
+内核显示的路径会变成新名字。所以：
+
+```
+/proc/<pid>/maps → .../dsh-termux.alpha1-backup-<ts>/node_modules/.../system.node
+```
+
+这其实是好事（旧服务继续可用），但意味着**备份目录在重启前不能删**，
+否则运行中的进程会失去它的依赖文件。判断运行版本时也可以直接看这个路径。

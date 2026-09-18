@@ -6,11 +6,13 @@
 本仓库记录的是：**如何把上游版本重打包成能在 Termux 上正常工作的 `dsh-termux`**，
 以及每一次踩坑的根因与验证方法。
 
-- 当前验证版本：`@deepseek-ai/dsh@0.1.6-alpha.1` → `dsh-termux@0.1.6-alpha.1-termux.1`
+- 当前验证版本：`@deepseek-ai/dsh@0.1.6-alpha.2` → `dsh-termux@0.1.6-alpha.2-termux.1`
+- 上一次：`0.1.6-alpha.1` → `dsh-termux@0.1.6-alpha.1-termux.1`
 - 设备：Termux on Android aarch64，Node v26.4.0（ABI 147）
 - 兼容性细节：[`docs/termux-compat-notes.md`](docs/termux-compat-notes.md)
 - 诊断经验：[`docs/lessons.md`](docs/lessons.md)
 - 平台缺口审计：[`docs/android-audit.md`](docs/android-audit.md)
+- **alpha.1 → alpha.2 升级记录：[`docs/alpha2-changes.md`](docs/alpha2-changes.md)**（上游重构导致补丁失效的实例）
 
 ---
 
@@ -105,15 +107,25 @@ npm install-scripts ls
 
 | # | 位置 | 要做什么 |
 |---|---|---|
-| 1 | `lib/profile-boot-*.js` | HMR 加载加 `--expose-internals` 门控 |
-| 2 | `node-pty/prebuilds/android-arm64/pty.node` | 放入设备编译的 Android PTY 绑定 |
-| 3 | `@img/sharp-wasm32` | 装 wasm 回退（原生 sharp 的安全网） |
-| 4 | `@vscode/ripgrep/lib/index.js` | 加系统 `rg` 回退 |
-| 5 | `node-addon-system/lib/flock.js` | 平台判断放行 `android` |
-| 6 | `node-addon-system-android-arm64/` | 设备上编译 flock 绑定 |
-| 7 | `dsh-session-persistence-jsonl` | 硬链接 → Android 用 `rename` / `copyFile+EXCL` |
-| 8 | `dsh-attachment-local` | 同上，另加 durability 遍历的 EACCES 边界 |
-| 9 | `dsh-subprocess-local` | `createProcessInspector` 放行 `android` |
+| 1 | `dsh-app-boot/lib/index.js` | `internalModules()` 优先走 `--expose-internals` |
+| 2 | `dsh-app-boot/lib/worker/profile-resolution-bootstrap.js` | 同上（Worker 端） |
+| 3 | `lib/bin.js` | shebang 改为 `#!/usr/bin/env -S node --expose-internals` |
+| 4 | `node-pty/prebuilds/android-arm64/pty.node` | 放入设备编译的 Android PTY 绑定 |
+| 5 | `@img/sharp-wasm32` | 装 wasm 回退（原生 sharp 的安全网） |
+| 6 | `sharp/src/build/Release/*.node` | 原生 sharp（设备编译，见第 6 步） |
+| 7 | `@vscode/ripgrep/lib/index.js` | 加系统 `rg` 回退 |
+| 8 | `node-addon-system/lib/flock.js` | 平台判断放行 `android` |
+| 9 | `node-addon-system-android-arm64/` | 设备上编译 flock 绑定 |
+| 10 | `dsh-session-persistence-jsonl` | 硬链接 → `copyFile+EXCL`（exclusive publish） |
+| 11 | `dsh-session-persistence-jsonl` | 硬链接 → `rename`（materialize） |
+| 12 | `dsh-attachment-local` | 硬链接 → `copyFile+EXCL` |
+| 13 | `dsh-attachment-local` | durability 遍历的 EACCES 边界 |
+| 14 | `dsh-subprocess-local` | `createProcessInspector` 放行 `android` |
+
+补丁 1–3 是 **alpha.2 新增**的：上游把 `cordis-plugin-hmr` 换成 `dsh-hmr` 并移除了
+`watchUserPatches`，alpha.1 用的「在 profile-boot 里门控 HMR」已无对应代码；
+同时 `node-addon-require-builtin` 从潜伏问题变成启动阻断。
+详见 [`docs/alpha2-changes.md`](docs/alpha2-changes.md)。
 
 ### 6. 编译原生 sharp（强烈建议）
 
