@@ -16,6 +16,46 @@
 
 ---
 
+## 零、新设备一键安装（推荐）
+
+在一台**只装了 Termux** 的新手机上：
+
+```sh
+pkg install -y curl
+curl -fsSL https://raw.githubusercontent.com/zimu5683/dsh-termux-upgrade/main/install-termux.sh | bash
+```
+
+脚本会依次：装系统依赖 → 检查 GitHub 认证（仓库私有，需 `gh auth login`）→
+下载最新 release 的产物 → `npm install -g` → **逐项验证** → 打印启动方式。
+
+装完启动：
+
+```sh
+cd ~ && dsh web
+```
+
+首次会打印带 token 的地址（形如 `http://127.0.0.1:3080/?token=...`），在手机浏览器打开即可。
+
+**这个产物就是当前平板上跑的版本**：475 个 npm 包全部内置，离线可装、
+无需解析依赖、无需编译。原生 addon（sharp / flock / node-pty）都已包含，
+新设备只要装了 `libvips` 就能直接用。
+
+常用选项：
+
+| 选项 | 作用 |
+|---|---|
+| `--version v0.1.6-alpha.2-termux.1` | 装指定版本（默认最新） |
+| `--no-deps` | 跳过系统依赖安装 |
+| `--rebuild-sharp` | 在设备上重新编译原生 sharp（换设备/升级 libvips 后用） |
+
+**前置条件**：`nodejs`、`libvips`、`ripgrep`、`gh`（+ 认证）。缺 `libvips` 时
+sharp 会退回 wasm32（能用，但连续处理 3~4 张大图后会失效）；缺 `ripgrep`
+则 `grep`/`glob` 工具不可用。脚本都会处理并验证。
+
+下面第一到四节是**手动流程与原理**，用于排查问题或跟进新版本时参考。
+
+---
+
 ## 一、新手机从零开始的完整流程
 
 ### 0. 关键前提：`process.platform === "android"`
