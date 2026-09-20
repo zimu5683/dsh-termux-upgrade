@@ -48,6 +48,14 @@ cd ~ && dsh web
 | `--no-deps` | 跳过系统依赖安装 |
 | `--rebuild-sharp` | 在设备上重新编译原生 sharp（换设备/升级 libvips 后用） |
 
+**网络前提（重要）**：GitHub 与 raw.githubusercontent.com 在大陆直连会超时，
+**必须先开代理**。实测：关代理时 `gh release download` 报
+`dial tcp 185.199.109.133:443: i/o timeout`；开代理后 50MB 产物约 2 分钟下完。
+
+代理的 fake-ip 模式**不影响** `gh` / `npm` / `git`——它们走普通 HTTPS，连到
+`198.18.x.x` 后由代理转发即可。只有 harness 内置的 `web_fetch` 工具会因为
+SSRF 地址校验而拒绝 fake-ip，那是另一回事（详见第三节的已知限制）。
+
 **前置条件**：`nodejs`、`libvips`、`ripgrep`、`gh`（+ 认证）。缺 `libvips` 时
 sharp 会退回 wasm32（能用，但连续处理 3~4 张大图后会失效）；缺 `ripgrep`
 则 `grep`/`glob` 工具不可用。脚本都会处理并验证。

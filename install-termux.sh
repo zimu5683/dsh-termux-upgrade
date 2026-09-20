@@ -13,6 +13,8 @@
 set -euo pipefail
 
 REPO="zimu5683/dsh-termux-upgrade"
+# 内置版本：不依赖 api.github.com 也能装。用 --version 可覆盖。
+DEFAULT_VERSION="v0.1.6-alpha.2-termux.1"
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 WORK="$HOME/.dsh-install"
 DO_DEPS=1
@@ -55,7 +57,7 @@ step "检查 GitHub 访问权限"
 if [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
   ok "使用环境变量中的 token"
 elif gh auth status >/dev/null 2>&1; then
-  ok "gh 已登录（$(gh api user --jq .login 2>/dev/null || echo '?')）"
+  ok "gh 已登录"
 else
   warn "私人仓库需要认证。请先执行： gh auth login    （选择 HTTPS + 浏览器/Token）"
   die "gh 未登录"
@@ -64,10 +66,21 @@ fi
 # ── 3. 取得版本号与产物 ────────────────────────────────────────────────────
 step "获取版本"
 if [ -z "$VERSION" ]; then
-  VERSION=$(gh release view --repo "$REPO" --json tagName --jq .tagName 2>/dev/null) \
-    || die "无法读取 release 列表；可用 --version 指定，例如 --version v0.1.6-alpha.2-termux.1"
+  # api.github.com 常常被代理重置；查不到就用内置版本，不让它阻断安装。
+  ERR=$(mktemp)
+  if VERSION=$(timeout 30 gh release view --repo "$REPO" --json tagName --jq .tagName 2>"$ERR") \
+     && printf '%s' "$VERSION" | grep -q '^v'; then
+    ok "目标版本（取自最新 release）: $VERSION"
+  else
+    VERSION="$DEFAULT_VERSION"
+    warn "查不到最新 release，改用内置版本: $VERSION"
+    warn "  （原因: $(head -1 "$ERR" | cut -c1-100)）"
+    warn "  如需指定别的版本: --version vX.Y.Z-termux.N"
+  fi
+  rm -f "$ERR"
+else
+  ok "目标版本（指定）: $VERSION"
 fi
-ok "目标版本: $VERSION"
 
 TARBALL="dsh-termux-${VERSION#v}.tgz"
 mkdir -p "$WORK"
@@ -76,8 +89,15 @@ step "下载 $TARBALL"
 if [ -f "$WORK/$TARBALL" ]; then
   ok "已存在，跳过下载（如需重下请删除 $WORK/$TARBALL）"
 else
-  gh release download "$VERSION" --repo "$REPO" --pattern "$TARBALL" --dir "$WORK" \
-    || die "下载失败。若版本号不对，先看: gh release list --repo $REPO"
+  # 大文件在移动网络下容易中断，重试三次（gh 会续传已完成的文件）
+  for attempt in 1 2 3; do
+    if gh release download "$VERSION" --repo "$REPO" --pattern "$TARBALL" --dir "$WORK" --clobber; then
+      break
+    fi
+    [ "$attempt" = 3 ] && die "下载失败（已重试 3 次）。检查代理是否可用；GitHub 直连在大陆会超时。"
+    warn "第 $attempt 次下载失败，5 秒后重试…"
+    sleep 5
+  done
   ok "$(du -h "$WORK/$TARBALL" | cut -f1)"
 fi
 
