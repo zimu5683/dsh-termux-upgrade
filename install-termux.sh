@@ -1,10 +1,10 @@
 #!/data/data/com.termux/files/usr/bin/bash
 # 在一台全新（只装了 Termux）的 Android 设备上安装 DSH。
 #
+#   pkg install -y curl
 #   curl -fsSL https://raw.githubusercontent.com/zimu5683/dsh-termux-upgrade/main/install-termux.sh | bash
 #
-# 或先克隆再运行：
-#   bash install-termux.sh
+# 或者把本文件拷到手机上执行： bash install-termux.sh
 #
 # 选项：
 #   --version <tag>   安装指定版本（默认取最新 release）
@@ -52,15 +52,16 @@ fi
 
 for c in node npm; do command -v "$c" >/dev/null || die "缺少 $c，请先 pkg install nodejs"; done
 
-# ── 2. GitHub 认证（仓库是私有的）──────────────────────────────────────────
-step "检查 GitHub 访问权限"
+# ── 2. GitHub 访问（仓库已公开，无需认证；有 gh 会更快）────────────────────
+step "检查 GitHub 访问"
 if [ -n "${GH_TOKEN:-}" ] || [ -n "${GITHUB_TOKEN:-}" ]; then
   ok "使用环境变量中的 token"
-elif gh auth status >/dev/null 2>&1; then
-  ok "gh 已登录"
+elif command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+  ok "gh 已登录，用 gh 下载"
+elif command -v gh >/dev/null 2>&1; then
+  ok "有 gh（未登录，走公开下载）"
 else
-  warn "私人仓库需要认证。请先执行： gh auth login    （选择 HTTPS + 浏览器/Token）"
-  die "gh 未登录"
+  ok "无 gh，走公开下载"
 fi
 
 # ── 3. 取得版本号与产物 ────────────────────────────────────────────────────
@@ -68,7 +69,7 @@ step "获取版本"
 if [ -z "$VERSION" ]; then
   # api.github.com 常常被代理重置；查不到就用内置版本，不让它阻断安装。
   ERR=$(mktemp)
-  if VERSION=$(timeout 30 gh release view --repo "$REPO" --json tagName --jq .tagName 2>"$ERR") \
+  if command -v gh >/dev/null 2>&1 && VERSION=$(timeout 30 gh release view --repo "$REPO" --json tagName --jq .tagName 2>"$ERR") \
      && printf '%s' "$VERSION" | grep -q '^v'; then
     ok "目标版本（取自最新 release）: $VERSION"
   else
@@ -89,10 +90,13 @@ step "下载 $TARBALL"
 if [ -f "$WORK/$TARBALL" ]; then
   ok "已存在，跳过下载（如需重下请删除 $WORK/$TARBALL）"
 else
-  # 大文件在移动网络下容易中断，重试三次（gh 会续传已完成的文件）
+  # 大文件在移动网络下容易中断，重试三次
+  URL="https://github.com/$REPO/releases/download/$VERSION/$TARBALL"
   for attempt in 1 2 3; do
-    if gh release download "$VERSION" --repo "$REPO" --pattern "$TARBALL" --dir "$WORK" --clobber; then
-      break
+    if command -v gh >/dev/null 2>&1 && gh auth status >/dev/null 2>&1; then
+      gh release download "$VERSION" --repo "$REPO" --pattern "$TARBALL" --dir "$WORK" --clobber && break
+    else
+      curl -fL --retry 2 -o "$WORK/$TARBALL" "$URL" && break
     fi
     [ "$attempt" = 3 ] && die "下载失败（已重试 3 次）。检查代理是否可用；GitHub 直连在大陆会超时。"
     warn "第 $attempt 次下载失败，5 秒后重试…"

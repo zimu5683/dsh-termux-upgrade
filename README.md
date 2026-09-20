@@ -25,8 +25,10 @@ pkg install -y curl
 curl -fsSL https://raw.githubusercontent.com/zimu5683/dsh-termux-upgrade/main/install-termux.sh | bash
 ```
 
-脚本会依次：装系统依赖 → 检查 GitHub 认证（仓库私有，需 `gh auth login`）→
-下载最新 release 的产物 → `npm install -g` → **逐项验证** → 打印启动方式。
+脚本会依次：装系统依赖 → 下载最新 release 的产物 → `npm install -g` →
+**逐项验证**（sharp 实现 / ripgrep / 原生 addon / 启动器 shebang）→ 打印启动方式。
+
+仓库已公开，**无需任何认证**；装了 `gh` 会自动用它（更快、可断点重试），没有就用 `curl`。
 
 装完启动：
 
@@ -56,7 +58,7 @@ cd ~ && dsh web
 `198.18.x.x` 后由代理转发即可。只有 harness 内置的 `web_fetch` 工具会因为
 SSRF 地址校验而拒绝 fake-ip，那是另一回事（详见第三节的已知限制）。
 
-**前置条件**：`nodejs`、`libvips`、`ripgrep`、`gh`（+ 认证）。缺 `libvips` 时
+**前置条件**：`nodejs`、`libvips`、`ripgrep`。缺 `libvips` 时
 sharp 会退回 wasm32（能用，但连续处理 3~4 张大图后会失效）；缺 `ripgrep`
 则 `grep`/`glob` 工具不可用。脚本都会处理并验证。
 
