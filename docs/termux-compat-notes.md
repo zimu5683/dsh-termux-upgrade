@@ -1,11 +1,16 @@
-# dsh-termux 0.1.6-alpha.1-termux.1 — Termux/Android compatibility record
+# dsh-termux 0.1.7-rc.1-termux.1 — Termux/Android compatibility record
 
 Device: Termux on Android aarch64, Node v26.4.0 (ABI 147).
 `process.platform === "android"`, `process.arch === "arm64"` — **not** `linux`.
 
-Upstream base: `@deepseek-ai/dsh@0.1.6-alpha.1` (the `alpha` dist-tag).
-Repack identity: `dsh-termux@0.1.6-alpha.1-termux.1`, same scheme as the previous
-`dsh-termux@0.1.1-rc.2-termux.1` install it replaces.
+Upstream base: `@deepseek-ai/dsh@0.1.7-rc.1` (the `next` dist-tag).
+Repack identity: `dsh-termux@0.1.7-rc.1-termux.1`, same scheme as the previous
+`dsh-termux@0.1.6-alpha.2-termux.1` install it replaces.
+
+> 本文件描述补丁的**根因与证据**，对每个版本都成立。
+> 版本相关的升级记录另见 [`alpha2-changes.md`](alpha2-changes.md) 与 [`rc1-changes.md`](rc1-changes.md)。
+> **从 rc.1 起，下面全部 13 条文本补丁都进了幂等重放器 `apply-termux-patches.mjs`** ——
+> 以前只有 3 条有兜底，另外 10 条会在任何一次重打包后静默消失。
 
 ## Packaging model (unchanged from the 0.1.1 repack)
 
@@ -85,9 +90,15 @@ Verified on-device:
 `emscripten` key, and `readelf -d` shows the addon linked against
 `libvips.so.42` / `libvips-cpp.so.42` plus bionic `liblog`/`libc++_shared`.
 
-**Fail-safe, verified by moving the addon aside:** sharp's loader then falls
-through to `@img/sharp-wasm32` and still encodes. So a device without libvips,
-or a wiped `src/build`, degrades to the old behaviour instead of breaking.
+**Fail-safe, verified by moving the addon aside:** ⚠️ **这个说法在本机是错的，已于 2026-09-24 更正。**
+实测 `@img/sharp-wasm32@0.35.4` 声明 `dependencies: { "@emnapi/runtime": "^1.11.3" }`，而该依赖
+**在 0.1.6 已发布的 tarball 里同样不存在**，所以 wasm32 回退从那时起就是死的。补上
+`@emnapi/runtime` 后模块能加载，但导出对象不是可调用函数（`sharp is not a function`），
+回退链路依然不可用。
+
+**结论**：原生 `sharp-android-arm64-*.node` 是**唯一**生效路径。移动它不会退化到 wasm32，
+而是图像功能整体失效。恢复方式只有重跑下面的 node-gyp 命令。
+（依据「无法验证的代码不改」，本次升级保持与 0.1.6 的 parity，未引入 `@emnapi/runtime`。）
 
 **Consequence for deployment:** the native addon is only as good as the system
 libvips under it. `pkg install libvips` (and its ~28 dependencies) is now part
@@ -97,15 +108,23 @@ node-gyp command above.
 
 ## Verified working after patching
 
-- `dsh --version` → `0.1.6-alpha.1-termux.1`
-- `dsh web` boots the full plugin tree and serves the GUI (HTTP 200, 29 KB shell,
-  content-hashed frontend asset and combined client-plugin bundle both 200)
-- End-to-end `--profile headless` against the DeepSeek official API: the model
-  called the bash tool, the command ran, and the exact stdout came back
-- Session persistence: `session.lock` created, `session.v3.jsonl.zstd` written
-  and decompressing to valid JSONL records
-- Native primitives: `node-pty` live PTY spawn, `sharp` PNG encode through
-  wasm32, `esbuild` transform, `koffi` load, on-device `flock`
+（以下为 **0.1.7-rc.1-termux.1** 的实测结果；0.1.6 的历史结论见 `alpha2-changes.md`。）
+
+- `dsh --version` → `0.1.7-rc.1`（**上游运行时版本**，见 `rc1-changes.md` 第三节；
+  重打包身份看 `package.json` → `0.1.7-rc.1-termux.1`）
+- `dsh web` boots the full plugin tree and serves the GUI（隔离实例实测：BOUND，
+  根 HTTP 200 / 33,582 B，10/10 前端资源 200）
+- **调用矩阵**：npm launcher / `node --expose-internals lib/bin.js` / 直接 exec `lib/bin.js`
+  三种都能起；`node lib/bin.js`（丢 flag）失败 —— 证明 `--expose-internals` 补丁承重
+- Session persistence: `session.lock` created, `session.v4.jsonl.zstd` written
+  （**格式从 v3 升到 v4**），多帧 zstd 逐帧解压得到 21–22 条合法 JSONL 记录；
+  同一文件用 naive 解码器只得到 210 B / 1 行
+- 图片：`sharp` 原生绑定（vips 8.18.6，无 `emscripten`），连续 20 张 12MP 两轮
+  raw+encoded 逐字节一致，RSS peak 209 MB
+- 极简模式：`LinuxProcessInspector` 构造成功，前台进程组跟踪正确，SIGINT 精确命中
+- Native primitives: `node-pty` live PTY spawn（真机 `/dev/pts/*`）、`esbuild` transform、
+  `koffi` load、on-device `flock`（acquire → EAGAIN 争用 → 释放后再取）
+- 打包：498 包，25,549 文件条目与暂存树**完全相等**（缺失 0 / 多余 0）
 
 ### Patch 10 evidence (the 极简模式 bash failure)
 
@@ -155,7 +174,28 @@ error until restarted.
 
 1. `npm pack @deepseek-ai/dsh@<version>` and stage it as `dsh-termux@<version>-termux.1`
 2. `npm install` in the staging dir (npm picks the android-arm64 optional deps)
-3. Re-apply patches 1 and 5 by hand; re-copy 2, 3 and 6; re-check 7, 8, 9 —
-   upstream has already dropped the Android branch twice
-4. `node pin-manifest.mjs <dir>` then build the tarball with `tar`
-5. `scripts/verify-tarball.sh` must report 0 missing before installing
+3. **Apply every text patch through the replayer — no hand editing:**
+   ```sh
+   DSH_INSTALL_ROOT=<staging>/dsh-termux node apply-termux-patches.mjs
+   DSH_INSTALL_ROOT=<staging>/dsh-termux node apply-termux-patches.mjs --check   # exit 0, zero DRIFT
+   ```
+   If `--check` reports **DRIFT**, upstream changed a code path this patch depends on.
+   Re-derive that patch in `gen-patchdefs.mjs` (take `old` from the pristine source and
+   `neu` from a known-good artifact, then let it prove `applyPending(pristine) === artifact`)
+   — do not hand-edit the anchors, and do not delete the patch to make the check pass.
+4. Re-copy the four native binaries: `node-pty` `pty.node`, native `sharp` `.node`,
+   `@img/sharp-wasm32`, `node-addon-system-android-arm64`. Check each package version first —
+   a version bump means the binary must be rebuilt (`node-gyp rebuild --nodedir=$PREFIX`).
+5. `node pin-manifest.mjs <dir>` then build the tarball with `tar` (**not** `npm pack`)
+6. `scripts/compare-tree.mjs` must report `MISSING from tarball: 0`, then `verify-tarball.sh`
+7. Install into an isolated prefix first, run `tool-probe.mjs` / `verify-patches.mjs` /
+   `verify-runtime-behavior.mjs` / `tool-audit.mjs` against it, and only then swap the global tree
+8. Remember `~/.dsh/profiles/web/package.json`: the **bundle list changes with upstream
+   releases**. rc.1 retired `@deepseek-ai/dsh-experimental-agent-team-web-profile` and the
+   profile must list exactly the bundles that still exist, or the profile fails to compose.
+
+### rc.1 的经验：上游这次没有重构任何被补丁覆盖的代码路径
+
+26/26 步锚点原样命中、零 DRIFT。但这**不代表可以跳过重放** ——
+补丁在包内，`npm install` 会覆盖它们。真正的纪律是「每次升级都跑一遍重放器 + `--check`」，
+而不是「上次打过了这次应该还在」。

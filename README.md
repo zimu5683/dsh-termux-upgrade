@@ -6,13 +6,15 @@
 本仓库记录的是：**如何把上游版本重打包成能在 Termux 上正常工作的 `dsh-termux`**，
 以及每一次踩坑的根因与验证方法。
 
-- 当前验证版本：`@deepseek-ai/dsh@0.1.6-alpha.2` → `dsh-termux@0.1.6-alpha.2-termux.1`
-- 上一次：`0.1.6-alpha.1` → `dsh-termux@0.1.6-alpha.1-termux.1`
+- 当前验证版本：`@deepseek-ai/dsh@0.1.7-rc.1` → `dsh-termux@0.1.7-rc.1-termux.1`
+- 上一次：`0.1.6-alpha.2` → `dsh-termux@0.1.6-alpha.2-termux.1`
+- 更早：`0.1.6-alpha.1`、`0.1.1-rc.2`
 - 设备：Termux on Android aarch64，Node v26.4.0（ABI 147）
 - 兼容性细节：[`docs/termux-compat-notes.md`](docs/termux-compat-notes.md)
 - 诊断经验：[`docs/lessons.md`](docs/lessons.md)
 - 平台缺口审计：[`docs/android-audit.md`](docs/android-audit.md)
-- **alpha.1 → alpha.2 升级记录：[`docs/alpha2-changes.md`](docs/alpha2-changes.md)**（上游重构导致补丁失效的实例）
+- **alpha.1 → alpha.2 升级记录：[`docs/alpha2-changes.md`](docs/alpha2-changes.md)**
+- **alpha.2 → rc.1 升级记录：[`docs/rc1-changes.md`](docs/rc1-changes.md)**（补丁重导出、重放器扩容、`--version` 语义变更）
 
 ---
 
@@ -153,28 +155,45 @@ npm install-scripts ls
 补丁全表与逐条根因见 [`docs/termux-compat-notes.md`](docs/termux-compat-notes.md)。
 每次升级都要重新过一遍，不要假设上次打过的这次还在。
 
-速查（详细做法见文档）：
+**从 rc.1 起，全部 13 条文本补丁都进了一个幂等重放器**（`apply-termux-patches.mjs`），
+补丁表由 `gen-patchdefs.mjs` 从 pristine 源码与 known-good 产物**机械派生**并逐字节自证，
+不再是手工抄写。升级时只需对暂存树跑一次，再用 `--check` 确认：
+
+```sh
+DSH_INSTALL_ROOT=<staging>/dsh-termux node apply-termux-patches.mjs
+DSH_INSTALL_ROOT=<staging>/dsh-termux node apply-termux-patches.mjs --check   # 必须退出 0
+```
+
+速查（13 条文本补丁 + 4 项原生二进制件）：
 
 | # | 位置 | 要做什么 |
 |---|---|---|
 | 1 | `dsh-app-boot/lib/index.js` | `internalModules()` 优先走 `--expose-internals` |
 | 2 | `dsh-app-boot/lib/worker/profile-resolution-bootstrap.js` | 同上（Worker 端） |
 | 3 | `lib/bin.js` | shebang 改为 `#!/usr/bin/env -S node --expose-internals` |
-| 4 | `node-pty/prebuilds/android-arm64/pty.node` | 放入设备编译的 Android PTY 绑定 |
-| 5 | `@img/sharp-wasm32` | 装 wasm 回退（原生 sharp 的安全网） |
-| 6 | `sharp/src/build/Release/*.node` | 原生 sharp（设备编译，见第 6 步） |
-| 7 | `@vscode/ripgrep/lib/index.js` | 加系统 `rg` 回退 |
-| 8 | `node-addon-system/lib/flock.js` | 平台判断放行 `android` |
-| 9 | `node-addon-system-android-arm64/` | 设备上编译 flock 绑定 |
-| 10 | `dsh-session-persistence-jsonl` | 硬链接 → `copyFile+EXCL`（exclusive publish） |
-| 11 | `dsh-session-persistence-jsonl` | 硬链接 → `rename`（materialize） |
-| 12 | `dsh-attachment-local` | 硬链接 → `copyFile+EXCL` |
-| 13 | `dsh-attachment-local` | durability 遍历的 EACCES 边界 |
-| 14 | `dsh-subprocess-local` | `createProcessInspector` 放行 `android` |
+| 4 | `@vscode/ripgrep/lib/index.js` | 加系统 `rg` 回退 |
+| 5 | `node-addon-system/lib/flock.js` | 平台判断放行 `android` |
+| 6 | `dsh-session-persistence-jsonl` | 硬链接 → `copyFile+EXCL`（exclusive publish） |
+| 7 | `dsh-session-persistence-jsonl` | 硬链接 → `rename`（materialize） |
+| 8 | `dsh-attachment-local` | 硬链接 → `copyFile+EXCL`（publishStagedObject） |
+| 9 | `dsh-attachment-local` | 硬链接 → `copyFile+EXCL`（publishImmutableAlias） |
+| 10 | `dsh-attachment-local` | durability 遍历的 EACCES 边界 |
+| 11 | `dsh-subprocess-local` | `createProcessInspector` 放行 `android` |
+| 12 | `dsh-fs-local` | `writeFileAtomic` 的 `createIfAbsent` → `copyFile+EXCL` |
+| 13 | `dsh-web-fetch-http` | `trustedAddressRanges` 白名单（fake-IP VPN） |
+| — | `node-pty/prebuilds/android-arm64/pty.node` | 放入设备编译的 Android PTY 绑定（**二进制，重放器无法处理**） |
+| — | `@img/sharp-wasm32` | wasm 回退包（**已确认实际不可用**，见 rc1-changes §六） |
+| — | `sharp/src/build/Release/*.node` | 原生 sharp（设备编译，见第 6 步） |
+| — | `node-addon-system-android-arm64/` | 设备上编译 flock 绑定 |
 
 补丁 1–3 是 **alpha.2 新增**的：上游把 `cordis-plugin-hmr` 换成 `dsh-hmr` 并移除了
 `watchUserPatches`，alpha.1 用的「在 profile-boot 里门控 HMR」已无对应代码；
 同时 `node-addon-require-builtin` 从潜伏问题变成启动阻断。
+
+补丁 8–10、12 的位置在 **rc.1 复核时修正**过：`createProcessInspector` 实际在
+`dsh-subprocess-local/lib/runner-launch-*.js`（不在 `lib/index.js`），
+而 `publishStagedObject` / `ensureDurableDirectory` / `publishImmutableAlias` 是
+`dsh-attachment-local` 里三处独立的硬链接缺陷。rc.1 复核结论：**26/26 步锚点全部命中，零 DRIFT**。
 详见 [`docs/alpha2-changes.md`](docs/alpha2-changes.md)。
 
 ### 6. 编译原生 sharp（强烈建议）
@@ -272,10 +291,14 @@ stat -c '%y' <你刚改的文件>                        # 修改时刻
 |---|---|
 | 只想回退 sharp | `scripts/restore-sharp.sh` |
 | 想整个回退到上一版 dsh | `scripts/rollback.sh`（回 0.1.1） |
-| 想回退到本仓库记录的这一版 | 重装 `dsh-termux-0.1.6-alpha.1-termux.1.tgz` |
+| 想回退到本仓库记录的这一版 | 重装 `dsh-termux-0.1.7-rc.1-termux.1.tgz` |
+| 想回退到上一版 | 重装 `dsh-termux-0.1.6-alpha.2-termux.1.tgz` |
 | 服务起不来 | 用第 9 步的隔离启动方式看报错，别动全局安装 |
 
 **动手前先建恢复点**，这是这次任务的第一条纪律。
+
+> rc.1 的原子替换会留下 `$PREFIX/lib/node_modules/dsh-termux.old-<时间戳>`，
+> 配套的重启脚本 `restart-dsh-web.sh` 在新版 60 秒内没起来时会**自动把旧目录换回并重启旧版**。
 
 ---
 
@@ -284,6 +307,8 @@ stat -c '%y' <你刚改的文件>                        # 修改时刻
 ```
 README.md                      本手册
 docs/termux-compat-notes.md    完整兼容性记录（每个补丁的根因、证据、验证）
+docs/alpha2-changes.md         alpha.1 → alpha.2 升级记录
+docs/rc1-changes.md            alpha.2 → rc.1 升级记录（补丁重导出、重放器扩容、--version 语义）
 docs/lessons.md                诊断经验与踩过的思维陷阱
 docs/android-audit.md          495 个 package.json 的平台缺口审计
 scripts/pin-manifest.mjs       锁定全部顶层依赖到精确版本
@@ -291,6 +316,17 @@ scripts/compare-tree.mjs       暂存树 vs tarball 完整性比对
 scripts/verify-tarball.sh      tarball 严格校验
 scripts/rollback.sh            回滚到 0.1.1
 scripts/restore-sharp.sh       sharp 回退到 wasm32
+```
+
+配套的维护脚本在设备本机的工作区（不进本仓库）：
+
+```
+tool-probe.mjs                 环境与补丁诊断（只读，覆盖全部 13 条补丁）
+apply-termux-patches.mjs       幂等补丁重放器（13 条，--check/--dry-run/--revert）
+verify-patches.mjs             补丁自检：锚点唯一可逆、重放逐字节一致、幂等
+verify-runtime-behavior.mjs    运行时行为验证（write / 附件 / web_fetch + SSRF）
+tool-audit.mjs                 全工具可用性审计器（180 条组合行）
+ANDROID-TOOL-AUDIT.md          全工具可用性审计报告
 ```
 
 仓库里**不含**任何密钥、token 或二进制产物——只放流程、脚本与结论。
