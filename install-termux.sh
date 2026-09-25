@@ -14,7 +14,7 @@ set -euo pipefail
 
 REPO="zimu5683/dsh-termux-upgrade"
 # 内置版本：不依赖 api.github.com 也能装。用 --version 可覆盖。
-DEFAULT_VERSION="v0.1.7-rc.1-termux.1"
+DEFAULT_VERSION="v0.1.7-rc.2-termux.1"
 PREFIX="${PREFIX:-/data/data/com.termux/files/usr}"
 WORK="$HOME/.dsh-install"
 DO_DEPS=1

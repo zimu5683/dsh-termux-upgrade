@@ -1,14 +1,15 @@
-# dsh-termux 0.1.7-rc.1-termux.1 — Termux/Android compatibility record
+# dsh-termux 0.1.7-rc.2-termux.1 — Termux/Android compatibility record
 
 Device: Termux on Android aarch64, Node v26.4.0 (ABI 147).
 `process.platform === "android"`, `process.arch === "arm64"` — **not** `linux`.
 
-Upstream base: `@deepseek-ai/dsh@0.1.7-rc.1` (the `next` dist-tag).
-Repack identity: `dsh-termux@0.1.7-rc.1-termux.1`, same scheme as the previous
-`dsh-termux@0.1.6-alpha.2-termux.1` install it replaces.
+Upstream base: `@deepseek-ai/dsh@0.1.7-rc.2` (the `next` dist-tag).
+Repack identity: `dsh-termux@0.1.7-rc.2-termux.1`, same scheme as the previous
+`dsh-termux@0.1.7-rc.1-termux.1` install it replaces.
 
 > 本文件描述补丁的**根因与证据**，对每个版本都成立。
-> 版本相关的升级记录另见 [`alpha2-changes.md`](alpha2-changes.md) 与 [`rc1-changes.md`](rc1-changes.md)。
+> 版本相关的升级记录另见 [`alpha2-changes.md`](alpha2-changes.md)、
+> [`rc1-changes.md`](rc1-changes.md) 与 [`rc2-changes.md`](rc2-changes.md)。
 > **从 rc.1 起，下面全部 13 条文本补丁都进了幂等重放器 `apply-termux-patches.mjs`** ——
 > 以前只有 3 条有兜底，另外 10 条会在任何一次重打包后静默消失。
 

@@ -6,15 +6,16 @@
 本仓库记录的是：**如何把上游版本重打包成能在 Termux 上正常工作的 `dsh-termux`**，
 以及每一次踩坑的根因与验证方法。
 
-- 当前验证版本：`@deepseek-ai/dsh@0.1.7-rc.1` → `dsh-termux@0.1.7-rc.1-termux.1`
-- 上一次：`0.1.6-alpha.2` → `dsh-termux@0.1.6-alpha.2-termux.1`
-- 更早：`0.1.6-alpha.1`、`0.1.1-rc.2`
+- 当前验证版本：`@deepseek-ai/dsh@0.1.7-rc.2` → `dsh-termux@0.1.7-rc.2-termux.1`
+- 上一次：`0.1.7-rc.1` → `dsh-termux@0.1.7-rc.1-termux.1`
+- 更早：`0.1.6-alpha.2`、`0.1.6-alpha.1`、`0.1.1-rc.2`
 - 设备：Termux on Android aarch64，Node v26.4.0（ABI 147）
 - 兼容性细节：[`docs/termux-compat-notes.md`](docs/termux-compat-notes.md)
 - 诊断经验：[`docs/lessons.md`](docs/lessons.md)
 - 平台缺口审计：[`docs/android-audit.md`](docs/android-audit.md)
 - **alpha.1 → alpha.2 升级记录：[`docs/alpha2-changes.md`](docs/alpha2-changes.md)**
 - **alpha.2 → rc.1 升级记录：[`docs/rc1-changes.md`](docs/rc1-changes.md)**（补丁重导出、重放器扩容、`--version` 语义变更）
+- **rc.1 → rc.2 升级记录：[`docs/rc2-changes.md`](docs/rc2-changes.md)**（小版本；零 DRIFT；profile 配置迁移的坑）
 
 ---
 
